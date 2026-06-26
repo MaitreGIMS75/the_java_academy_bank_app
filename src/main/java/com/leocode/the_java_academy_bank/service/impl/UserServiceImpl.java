@@ -4,10 +4,12 @@ import com.leocode.the_java_academy_bank.dto.*;
 import com.leocode.the_java_academy_bank.entity.User;
 import com.leocode.the_java_academy_bank.repository.UserRepository;
 import com.leocode.the_java_academy_bank.service.EmailService;
+import com.leocode.the_java_academy_bank.service.TransactionService;
 import com.leocode.the_java_academy_bank.service.UserService;
 import com.leocode.the_java_academy_bank.utils.UserUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 
@@ -17,6 +19,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final EmailService emailService;
+    private final TransactionService transactionService;
 
     @Override
     public BankResponse createAccount(UserRequest userRequest) {
@@ -121,6 +124,15 @@ public class UserServiceImpl implements UserService {
         BigDecimal newBalance = foundUser.getAccountBalance().add(request.getAmount());
         foundUser.setAccountBalance(newBalance);
         User savedUser = userRepository.save(foundUser);
+
+        // Save Transaction
+        TransactionDto transactionDto = TransactionDto.builder()
+                .accountNumber(savedUser.getAccountNumber())
+                .transactionType("CREDIT")
+                .amount(request.getAmount())
+                .build();
+        transactionService.saveTransaction(transactionDto);
+
         return BankResponse.builder()
                 .responseCode(UserUtils.ACCOUNT_DEPOSIT_SUCCESS_CODE)
                 .responseMessage(UserUtils.ACCOUNT_DEPOSIT_SUCCESS_MESSAGE)
@@ -156,6 +168,15 @@ public class UserServiceImpl implements UserService {
         BigDecimal newBalance = foundUser.getAccountBalance().subtract(request.getAmount());
         foundUser.setAccountBalance(newBalance);
         User savedUser = userRepository.save(foundUser);
+
+        // Save Transaction
+        TransactionDto transactionDto = TransactionDto.builder()
+                .accountNumber(savedUser.getAccountNumber())
+                .transactionType("DEBIT")
+                .amount(request.getAmount())
+                .build();
+        transactionService.saveTransaction(transactionDto);
+
         return BankResponse.builder()
                 .responseCode(UserUtils.ACCOUNT_WITHDRAW_SUCCESS_CODE)
                 .responseMessage(UserUtils.ACCOUNT_WITHDRAW_SUCCESS_MESSAGE)
@@ -168,6 +189,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public BankResponse transfer(TransferRequest request) {
         // Check if debit account exist
         boolean accountToDebit = userRepository.existsByAccountNumber(request.getSourceAccountNumber());
@@ -201,6 +223,14 @@ public class UserServiceImpl implements UserService {
         userSource.setAccountBalance(newAmount);
         User savedUserSource = userRepository.save(userSource);
 
+        // Save the Debit part of Transfer Transaction
+        TransactionDto transactionDebit = TransactionDto.builder()
+                .accountNumber(savedUserSource.getAccountNumber())
+                .transactionType("TRANSFER DEBIT")
+                .amount(request.getAmount())
+                .build();
+        transactionService.saveTransaction(transactionDebit);
+
         // Send Email Notification To the Source Account User
         EmailDetails sourceEmailDetails = EmailDetails.builder()
                 .recipient(savedUserSource.getEmail())
@@ -216,6 +246,14 @@ public class UserServiceImpl implements UserService {
         BigDecimal totalAmount = userDestination.getAccountBalance().add(request.getAmount());
         userDestination.setAccountBalance(totalAmount);
         User savedUserDestination = userRepository.save(userDestination);
+
+        // Save the Credit part of Transfer Transaction
+        TransactionDto transactionCredit = TransactionDto.builder()
+                .accountNumber(savedUserDestination.getAccountNumber())
+                .transactionType("TRANSFER CREDIT")
+                .amount(request.getAmount())
+                .build();
+        transactionService.saveTransaction(transactionCredit);
 
         // Send Email Notification To the Destination Account User
         EmailDetails destinationEmailDetails = EmailDetails.builder()
